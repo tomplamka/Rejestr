@@ -25,6 +25,7 @@ from PyQt4.QtGui import *
 from qgis.core import *
 from qgis.gui import *
 from qgis.utils import *
+import getpass
 import psycopg2
 from datetime import *
 import sys
@@ -75,6 +76,8 @@ class rejestr:
         # TODO: We are going to let the user set this up in a future iteration
         self.toolbar = self.iface.addToolBar(u'rejestr')
         self.toolbar.setObjectName(u'rejestr')
+        
+        
 
     # noinspection PyMethodMayBeStatic
     def tr(self, message):
@@ -183,13 +186,15 @@ class rejestr:
         self.dlg.miejscowoscLineEdit.clear()
         self.dlg.kodLineEdit.clear()
         self.dlg.dataZlozeniaWnioskuLineEdit.clear()
-        self.dlg.znakSprawyLineEdit.clear()
         
         self.dlg.rejonComboBox.addItem(u'Knurów')
         self.dlg.rejonComboBox.addItem(u'Krywałd')
         self.dlg.rejonComboBox.addItem(u'Szczygłowice')
         
-        self.dlg.rodzajDokumentuLineEdit.clear()
+        self.dlg.rodzajDokComboBox.addItem(u'Wyrys')
+        self.dlg.rodzajDokComboBox.addItem(u'Wypis')
+        self.dlg.rodzajDokComboBox.addItem(u'Zaświadczenie')
+        
         self.dlg.celWydaniaDokumentuLineEdit.clear()
         self.dlg.oplataLineEdit.clear()
         self.dlg.pobranaOplataSkarowaLineEdit.clear()
@@ -200,6 +205,9 @@ class rejestr:
 
         self.dlg.btnRejestruj.clicked.connect(self.wniosek)
         self.dlg.btnClearForm.clicked.connect(self.clearForm)
+        
+        #wczytuje ścieżkę do pliku załącznika
+        self.dlg.btnSaveZal.clicked.connect(self.select_output_file)
 
 
     def unload(self):
@@ -212,9 +220,40 @@ class rejestr:
         # remove the toolbar
         del self.toolbar
         
+    def getLogin(self):
+        #zwraca nazwę użytkownika
+        return getpass.getuser()
+        #self.user = getpass.getuser()
+        
+    def statusValidacji(self, *args, **kwargs):
+        sender = self.sender()
+        validator = sender.validator()
+        state = validator.validate(sender.text(), 0)[0]
+        if state == QtGui.QValidator.Acceptable:
+            color = '#c4df9b' # zielony
+        elif state == QtGui.QValidator.Intermediate:
+            color = '#fff79a' # żółty
+        else:
+            color = '#f6989d' # czerwony
+        sender.setStyleSheet('QLineEdit { background-color: %s }' % color)
+    
+    #owieranie pliku z załącznikiem
+    def select_output_file(self):
+        filenameZal = QFileDialog.getOpenFileName(self.dlg, "Select output file ","", '*.pdf')
+        self.dlg.zalDoWnioskuLineEdit.setText(filenameZal)
+        
     def wniosek(self):
+        
+        
+        
         newlineNameAdr = self.dlg.nazwaAdresataLineEdit.text()
+        
         newlineImie_2 = self.dlg.imieLineEdit.text()
+        #regexp = QRegExp('[A-Z][a-z]')
+        #validator = QRegExpValidator()
+        #newlineImie_2.setValidator(validator)
+        #newlineImie_2.text()
+        
         newlineNazwisko_2 = self.dlg.nazwiskoLineEdit.text()
         newlineUlica = self.dlg.ulicaLineEdit.text()
         newlineNrBud = self.dlg.nrBudynkuLineEdit.text()
@@ -228,24 +267,21 @@ class rejestr:
         #vartemp = dataDatePicker.toPyDate()
         day,month,year = dataDatePicker.split('-')
         newlineDataWniosku = (datetime(int(year),int(month),int(day)))
-        #newlineDataWniosku = date(dataDatePicker)
         
-        newlineZnakSpr = self.dlg.znakSprawyLineEdit.text()
         newcbRejon = self.dlg.rejonComboBox.currentText()
-        newlineRodzDok = self.dlg.rodzajDokumentuLineEdit.text()
+        newlineRodzDok = self.dlg.rodzajDokComboBox.currentText()
         newlineCelDok = self.dlg.celWydaniaDokumentuLineEdit.text()
         newlineOplata = self.dlg.oplataLineEdit.text()
         newlinePobOplSkarb = self.dlg.pobranaOplataSkarowaLineEdit.text()
         newlineNumDzialek = self.dlg.numeryDzialekLineEdit.text()
         newlineDokPlan = self.dlg.dokumentyPlanistyczneLineEdit.text()
+        
         newlineZalWniosek = self.dlg.zalDoWnioskuLineEdit.text()
+        output_file = open(newlineZalWniosek, 'w')
         
         dataRejestracji = datetime.now()
-
-        
-        #newlineID = QtGui.QLineEdit(self)
-        #validatorInt = QtGui.QIntValidator()
-        #newlineID.setValidator(validatorInt)
+        user = getpass.getuser()
+        user = str(user)
         
         con = None
 
@@ -257,39 +293,41 @@ class rejestr:
             cur.execute("select Id from rejestr order by id desc limit 1")
             con.commit()
             dataId = cur.fetchone()[0]
-            
             newlineId = (dataId + 1)
             
-            if all([not newlineNameAdr, not newlineImie_2, not newlineNazwisko_2, not newlineUlica, not newlineNrBud, not newlineMiejscowosc, not newlineKod, not newlineDataWniosku, not newlineZnakSpr, not newcbRejon, not newlineRodzDok, not newlineCelDok, not newlineOplata, not newlinePobOplSkarb, not newlineNumDzialek, not newlineDokPlan, not newlineZalWniosek]):
+            #rok
+            rok = datetime.now().year
+            
+            #numer kolejnej sprawy
+            cur.execute("select datenow from rejestr order by datenow desc limit 1")
+            con.commit()
+            datenowVal = cur.fetchone()[0]
+            datenowVal = str(datenowVal)
+            year, month, day = datenowVal.split('-')
+            if (year == rok):
+                nrSpr = 0
+            else:
+                cur.execute("select idznspr from rejestr order by idznspr desc limit 1")
+                con.commit()
+                idZnSpr = cur.fetchone()[0]
+                nrSpr = idZnSpr + 1
+            
+            #znak sprawy
+            if (newlineRodzDok == u'Wypis' or newlineRodzDok == u'Wyrys'):
+                newlineZnakSpr = 'UA.6727.1.' + str(nrSpr) + '.' + str(rok)
+            elif (newlineRodzDok == u'Zaświadczenie'):
+                newlineZnakSpr = 'UA.6727.3.' + str(nrSpr) + '.' + str(rok)
+            
+            if all([not newlineImie_2, not newlineNazwisko_2, not newlineUlica, not newlineNrBud, not newlineMiejscowosc, not newlineKod, not newlineDataWniosku, not newcbRejon, not newlineRodzDok, not newlineCelDok, not newlineOplata, not newlinePobOplSkarb, not newlineNumDzialek, not newlineDokPlan, not newlineZalWniosek]):
                 iface.messageBar().pushMessage('Puste pole', u'Proszę wypełnić wszystkie pola formularza', level=QgsMessageBar.CRITICAL, duration=10)
             else:
             
-                query = "INSERT INTO rejestr (id, nameadr, imie, nazwisko, ulica, nrbud, miejscowosc, kod, datawniosku, znakspr, rejon, rodzdok, celdok, oplata, poboplskarb, numdzialek, dokplan, zalwniosek, datenow) VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);"
-                data = (newlineId, newlineNameAdr, newlineImie_2, newlineNazwisko_2, newlineUlica, newlineNrBud, newlineMiejscowosc, newlineKod, newlineDataWniosku, newlineZnakSpr, newcbRejon, newlineRodzDok, newlineCelDok, newlineOplata, newlinePobOplSkarb, newlineNumDzialek, newlineDokPlan, newlineZalWniosek, dataRejestracji)
-                #query = "INSERT INTO test (id, nameadr) VALUES(%s, %s);"
-                #data = (newlineId, newlineNameAdr)
+                query = "INSERT INTO rejestr (id, nameadr, imie, nazwisko, ulica, nrbud, miejscowosc, kod, datawniosku, znakspr, rejon, rodzdok, celdok, oplata, poboplskarb, numdzialek, dokplan, zalwniosek, datenow, username, idznspr) VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);"
+                data = (newlineId, newlineNameAdr, newlineImie_2, newlineNazwisko_2, newlineUlica, newlineNrBud, newlineMiejscowosc, newlineKod, newlineDataWniosku, newlineZnakSpr, newcbRejon, newlineRodzDok, newlineCelDok, newlineOplata, newlinePobOplSkarb, newlineNumDzialek, newlineDokPlan, newlineZalWniosek, dataRejestracji, user, nrSpr)
 
                 cur.execute(query, data)
-                
-                
-                
                 con.commit()
-                
-    #            self.dlg.lineNameAdr.clear()
-    #            self.dlg.lineImie_2.clear()
-    #            self.dlg.lineNazwisko_2.clear()
-    #            self.dlg.lineUlica.clear()
-    #            self.dlg.lineNrBud.clear()
-    #            self.dlg.lineMiejscowosc.clear()
-    #            self.dlg.lineKod.clear()
-    #            self.dlg.lineZnakSpr.clear()
-    #            self.dlg.lineRodzDok.clear()
-    #            self.dlg.lineCelDok.clear()
-    #            self.dlg.lineOplata.clear()
-    #            self.dlg.linePobOplSkarb.clear()
-    #            self.dlg.lineNumDzialek.clear()
-    #            self.dlg.lineDokPlan.clear()
-    #            self.dlg.lineZalWniosek.clear()
+
                 
                 iface.messageBar().pushMessage('Sukces', u'Dane zostały zapisane', level=QgsMessageBar.SUCCESS, duration=5)
 
@@ -318,9 +356,7 @@ class rejestr:
         self.dlg.miejscowoscLineEdit.clear()
         self.dlg.kodLineEdit.clear()
         self.dlg.dataZlozeniaWnioskuLineEdit.clear()
-        self.dlg.znakSprawyLineEdit.clear()
         
-        self.dlg.rodzajDokumentuLineEdit.clear()
         self.dlg.celWydaniaDokumentuLineEdit.clear()
         self.dlg.oplataLineEdit.clear()
         self.dlg.pobranaOplataSkarowaLineEdit.clear()
